@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>得点板</title>
+    <style>
+        :root {
+            /* パステル調のチームカラー */
+            --color-soka-bg: #dbeafe; /* 青系背景 */
+            --color-soka-text: #1e3a8a; /* 青系文字 */
+            --color-gajo-bg: #fee2e2; /* 赤系背景 */
+            --color-gajo-text: #7f1d1d; /* 赤系文字 */
+            --color-dai-bg: #fef08a;  /* 黄系背景 */
+            --color-dai-text: #713f12;  /* 黄系文字 */
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            background-color: #f3f4f6;
+            overflow: hidden; /* スクロール防止 */
+        }
+
+        /* メインレイアウト */
+        .board {
+            display: flex;
+            flex-direction: row; /* デフォルトは横並び */
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 縦画面（ポートレート）時のレスポンシブ対応 */
+        @media (orientation: portrait) {
+            .board {
+                flex-direction: column; /* 縦に並べる */
+            }
+        }
+
+        /* 各チームの領域 */
+        .team {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .team.soka { background-color: var(--color-soka-bg); color: var(--color-soka-text); }
+        .team.gajo { background-color: var(--color-gajo-bg); color: var(--color-gajo-text); }
+        .team.dai { background-color: var(--color-dai-bg); color: var(--color-dai-text); }
+
+        /* タッチ判定領域（透明） */
+        .hitbox {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 50%;
+            z-index: 10;
+            cursor: pointer;
+        }
+        .hitbox.top { top: 0; }
+        .hitbox.bottom { bottom: 0; }
+
+        .hitbox:active {
+            background-color: rgba(0, 0, 0, 0.03);
+        }
+
+        /* 表示コンテンツ */
+        .content {
+            position: relative;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        /* チーム名 */
+        .team-name {
+            font-size: clamp(1.5rem, 4vw, 3rem);
+            font-weight: bold;
+            margin-bottom: 1rem;
+            pointer-events: auto;
+            padding: 10px 20px;
+            border-radius: 10px;
+            transition: background-color 0.2s;
+        }
+        
+        .team-name:active {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        /* 得点表示 */
+        .score {
+            font-size: clamp(4rem, 12vw, 15rem);
+            font-weight: 900;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+            will-change: transform;
+        }
+
+        /* ポップアニメーション */
+        @keyframes pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+        .pop-anim {
+            animation: pop 0.2s ease-out;
+        }
+
+        /* 右上固定ボタン群 */
+        .floating-controls {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .icon-btn {
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            cursor: pointer;
+            pointer-events: auto;
+            transition: transform 0.1s;
+        }
+        .icon-btn:active {
+            background: #e5e7eb;
+            transform: scale(0.95);
+        }
+        .icon-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #374151;
+        }
+        .icon-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* モーダルメニュー */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 200;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            transform: translateY(20px);
+            transition: transform 0.2s ease;
+        }
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #6b7280;
+        }
+
+        .setting-group {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .setting-group:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .setting-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #4b5563;
+            font-size: 0.9rem;
+        }
+        
+        .range-slider {
+            width: 100%;
+            accent-color: #3b82f6;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: #3b82f6;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .action-btn:active { background: #2563eb; transform: scale(0.98); }
+        .action-btn.danger { background: #ef4444; }
+        .action-btn.danger:active { background: #dc2626; transform: scale(0.98); }
+        .action-btn.warning { background: #f59e0b; }
+        .action-btn.warning:active { background: #d97706; transform: scale(0.98); }
+
+        .input-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .input-row label {
+            color: #4b5563;
+            font-weight: bold;
+            font-size: 0.95rem;
+        }
+        .number-input {
+            width: 80px;
+            padding: 8px;
+            font-size: 1.1rem;
+            text-align: right;
+            border: 2px solid #d1d5db;
+            border-radius: 6px;
+            font-weight: bold;
+            color: #1f2937;
+            pointer-events: auto;
+            user-select: auto;
+            -webkit-user-select: auto;
+        }
+        .number-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- 音声要素 -->
+    <audio id="audio-bgm" src="bgm.mp3" loop></audio>
+    <audio id="audio-up" src="up.wav"></audio>
+    <audio id="audio-down" src="down.wav"></audio>
+
+    <div class="floating-controls">
+        <!-- Undo ボタン -->
+        <button class="icon-btn" id="btn-undo" onclick="undo()" disabled aria-label="元に戻す">
+            <svg viewBox="0 0 24 24">
+                <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C20.3 10.09 16.79 8 12.5 8z"/>
+            </svg>
+        </button>
+        <!-- メニュー ボタン -->
+        <button class="icon-btn" onclick="toggleMenu(true)" aria-label="メニュー">
+            <svg viewBox="0 0 24 24">
+                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+        </button>
+    </div>
+
+    <div class="board">
+        <!-- チーム1: 創価班 -->
+        <div class="team soka">
+            <div class="hitbox top" onclick="handleTap(0, true)"></div>
+            <div class="hitbox bottom" onclick="handleTap(0, false)"></div>
+            <div class="content">
+                <div class="team-name" 
+                     onmousedown="startLongPress(event, 0)" onmouseup="cancelLongPress()" onmouseleave="cancelLongPress()"
+                     ontouchstart="startLongPress(event, 0)" ontouchend="cancelLongPress()" ontouchcancel="cancelLongPress()"
+                     oncontextmenu="return false;">創価班</div>
+                <div class="score" id="score-0">0</div>
+            </div>
+        </div>
+
+        <!-- チーム2: 牙城会 -->
+        <div class="team gajo">
+            <div class="hitbox top" onclick="handleTap(1, true)"></div>
+            <div class="hitbox bottom" onclick="handleTap(1, false)"></div>
+            <div class="content">
+                <div class="team-name" 
+                     onmousedown="startLongPress(event, 1)" onmouseup="cancelLongPress()" onmouseleave="cancelLongPress()"
+                     ontouchstart="startLongPress(event, 1)" ontouchend="cancelLongPress()" ontouchcancel="cancelLongPress()"
+                     oncontextmenu="return false;">牙城会</div>
+                <div class="score" id="score-1">0</div>
+            </div>
+        </div>
+
+        <!-- チーム3: 大学校 -->
+        <div class="team dai">
+            <div class="hitbox top" onclick="handleTap(2, true)"></div>
+            <div class="hitbox bottom" onclick="handleTap(2, false)"></div>
+            <div class="content">
+                <div class="team-name" 
+                     onmousedown="startLongPress(event, 2)" onmouseup="cancelLongPress()" onmouseleave="cancelLongPress()"
+                     ontouchstart="startLongPress(event, 2)" ontouchend="cancelLongPress()" ontouchcancel="cancelLongPress()"
+                     oncontextmenu="return false;">大学校</div>
+                <div class="score" id="score-2">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- メニューモーダル -->
+    <div class="modal-overlay" id="menu-modal" onclick="if(event.target===this) toggleMenu(false)">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>設定メニュー</span>
+                <button class="close-btn" onclick="toggleMenu(false)">&times;</button>
+            </div>
+            
+            <!-- 得点設定 -->
+            <div class="setting-group">
+                <span class="setting-label">タップ時の得点変動量</span>
+                <div class="input-row">
+                    <label for="input-up">上がる点数:</label>
+                    <input type="number" id="input-up" class="number-input" value="10" onchange="updateAmounts()">
+                </div>
+                <div class="input-row">
+                    <label for="input-down">下がる点数:</label>
+                    <input type="number" id="input-down" class="number-input" value="10" onchange="updateAmounts()">
+                </div>
+            </div>
+
+            <!-- スコア一括操作 -->
+            <div class="setting-group">
+                <span class="setting-label">スコア操作</span>
+                <button class="action-btn warning" style="width: 100%;" onclick="setAllScoresTo100()">全チームを 100点 にする</button>
+            </div>
+
+            <!-- BGM操作 -->
+            <div class="setting-group">
+                <span class="setting-label">BGM操作</span>
+                <div class="btn-row">
+                    <button class="action-btn" onclick="playBGM()">再生</button>
+                    <button class="action-btn danger" onclick="stopBGM()">停止</button>
+                </div>
+            </div>
+
+            <!-- 音量設定 -->
+            <div class="setting-group">
+                <label class="setting-label" for="vol-se">効果音の音量: <span id="label-vol-se">100%</span></label>
+                <input type="range" id="vol-se" class="range-slider" min="0" max="1" step="0.1" value="1" oninput="updateVolume()">
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label" for="vol-bgm">BGMの音量: <span id="label-vol-bgm">50%</span></label>
+                <input type="range" id="vol-bgm" class="range-slider" min="0" max="1" step="0.1" value="0.5" oninput="updateVolume()">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 状態管理
+        let scores = [0, 0, 0];
+        let historyStack = [];
+        let upAmount = 10;
+        let downAmount = 10;
+
+        // DOM要素
+        const scoreEls = [
+            document.getElementById('score-0'),
+            document.getElementById('score-1'),
+            document.getElementById('score-2')
+        ];
+        const btnUndo = document.getElementById('btn-undo');
+        const modal = document.getElementById('menu-modal');
+        
+        // オーディオ要素
+        const audioUp = document.getElementById('audio-up');
+        const audioDown = document.getElementById('audio-down');
+        const audioBGM = document.getElementById('audio-bgm');
+
+        // 初期設定
+        audioBGM.volume = 0.5;
+
+        // --- 設定値の更新 ---
+        function updateAmounts() {
+            // テキストボックスから数値を取得。空欄や不正な値の場合はデフォルトの10にする
+            const upVal = parseInt(document.getElementById('input-up').value, 10);
+            const downVal = parseInt(document.getElementById('input-down').value, 10);
+            
+            upAmount = isNaN(upVal) ? 10 : upVal;
+            downAmount = isNaN(downVal) ? 10 : downVal;
+        }
+
+        // --- 得点処理 ---
+
+        // 状態を履歴に保存
+        function saveHistory() {
+            historyStack.push([...scores]);
+            btnUndo.disabled = false;
+        }
+
+        // タップ時の得点増減処理を中継
+        function handleTap(teamIndex, isUp) {
+            const amount = isUp ? upAmount : -downAmount;
+            
+            // 変動量が0の場合は何もしない
+            if (amount === 0) return;
+
+            saveHistory();
+            scores[teamIndex] += amount;
+            updateDisplay(teamIndex);
+            
+            // 効果音再生とアニメーション
+            playSE(isUp ? audioUp : audioDown);
+            triggerPopAnimation(teamIndex);
+        }
+
+        // チーム得点を0にリセット（長押し用）
+        function resetScore(teamIndex) {
+            if (scores[teamIndex] === 0) return;
+            saveHistory();
+            scores[teamIndex] = 0;
+            updateDisplay(teamIndex);
+            triggerPopAnimation(teamIndex);
+            playSE(audioDown); 
+        }
+
+        // 全チームを100点にする
+        function setAllScoresTo100() {
+            saveHistory();
+            for (let i = 0; i < 3; i++) {
+                scores[i] = 100;
+                updateDisplay(i);
+                triggerPopAnimation(i);
+            }
+            playSE(audioUp);
+            toggleMenu(false); // 実行後にメニューを閉じる
+        }
+
+        // Undo機能
+        function undo() {
+            if (historyStack.length === 0) return;
+            
+            const prevScores = historyStack.pop();
+            
+            for (let i = 0; i < 3; i++) {
+                if (scores[i] !== prevScores[i]) {
+                    scores[i] = prevScores[i];
+                    updateDisplay(i);
+                    triggerPopAnimation(i);
+                }
+            }
+
+            if (historyStack.length === 0) {
+                btnUndo.disabled = true;
+            }
+        }
+
+        // 画面の更新
+        function updateDisplay(teamIndex) {
+            scoreEls[teamIndex].textContent = scores[teamIndex];
+        }
+
+        // ポップアニメーションのトリガー
+        function triggerPopAnimation(teamIndex) {
+            const el = scoreEls[teamIndex];
+            el.classList.remove('pop-anim');
+            void el.offsetWidth; // リフローを強制
+            el.classList.add('pop-anim');
+        }
+
+        // --- 長押し処理 ---
+        let longPressTimer;
+
+        function startLongPress(e, teamIndex) {
+            if(e.type === 'mousedown' && e.button !== 0) return; 
+            longPressTimer = setTimeout(() => {
+                resetScore(teamIndex);
+                if (navigator.vibrate) navigator.vibrate(50);
+            }, 800);
+        }
+
+        function cancelLongPress() {
+            clearTimeout(longPressTimer);
+        }
+
+        // --- 音声・メニュー処理 ---
+
+        function playSE(audioElement) {
+            if (!audioElement) return;
+            audioElement.currentTime = 0;
+            audioElement.play().catch(e => console.log("SEスキップ:", e.message));
+        }
+
+        function toggleMenu(show) {
+            if (show) {
+                modal.classList.add('active');
+            } else {
+                modal.classList.remove('active');
+                // メニューを閉じるタイミングで、念のため入力値の反映漏れを防ぐ
+                updateAmounts(); 
+            }
+        }
+
+        function playBGM() {
+            audioBGM.play().catch(e => {
+                alert("BGMの再生に失敗しました。ファイル(bgm.mp3)が同じ場所にあるか確認してください。");
+            });
+        }
+
+        function stopBGM() {
+            audioBGM.pause();
+            audioBGM.currentTime = 0; // 停止時は最初に戻す
+        }
+
+        function updateVolume() {
+            const seVol = document.getElementById('vol-se').value;
+            const bgmVol = document.getElementById('vol-bgm').value;
+            
+            audioUp.volume = seVol;
+            audioDown.volume = seVol;
+            audioBGM.volume = bgmVol;
+            
+            document.getElementById('label-vol-se').textContent = Math.round(seVol * 100) + '%';
+            document.getElementById('label-vol-bgm').textContent = Math.round(bgmVol * 100) + '%';
+        }
+
+    </script>
+</body>
+</html>
+
+
