@@ -294,8 +294,7 @@
 </head>
 <body>
 
-    <!-- BGM用のオーディオ要素 -->
-    <audio id="audio-bgm" src="bgm.mp3" loop></audio>
+    <!-- ※ Web Audio API に完全移行したため、<audio>タグは不要になり削除しました -->
 
     <div class="floating-controls">
         <button class="icon-btn" id="btn-undo" onclick="undo()" disabled aria-label="元に戻す">
@@ -397,12 +396,30 @@
     </div>
 
     <script>
-        // --- Web Audio API による効果音の高速再生処理 ---
+        // ==========================================
+        // ▼▼▼ 音声ファイル名の設定はこちら ▼▼▼
+        // ==========================================
+        const AUDIO_FILE_BGM  = 'bgm.mp3';
+        const AUDIO_FILE_UP   = 'up.mp3';
+        const AUDIO_FILE_DOWN = 'down.mp3';
+        // ==========================================
+
+        // --- Web Audio API による音声処理 ---
         let audioCtx;
+        
+        // バッファ（読み込んだ音声データ）
         let upBuffer = null;
         let downBuffer = null;
+        let bgmBuffer = null;
+        
+        // 音量コントロール用ノード
         let seGainNode;
-        let currentSESource = null; // 現在再生中の効果音を保持する変数
+        let bgmGainNode;
+        
+        // 再生状態の管理
+        let currentSESource = null;
+        let currentBgmSource = null;
+        let isBgmPlaying = false;
 
         // ページ読み込み時にオーディオの準備を開始
         window.addEventListener('load', initWebAudio);
@@ -412,12 +429,20 @@
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
             
+            // --- 効果音(SE)の音量ノード設定 ---
             seGainNode = audioCtx.createGain();
             seGainNode.connect(audioCtx.destination);
-            seGainNode.gain.value = document.getElementById('vol-se').value;
+            seGainNode.gain.value = parseFloat(document.getElementById('vol-se').value);
 
-            loadAudioFile('up.mp3').then(buf => upBuffer = buf);
-            loadAudioFile('down.mp3').then(buf => downBuffer = buf);
+            // --- BGMの音量ノード設定 ---
+            bgmGainNode = audioCtx.createGain();
+            bgmGainNode.connect(audioCtx.destination);
+            bgmGainNode.gain.value = parseFloat(document.getElementById('vol-bgm').value);
+
+            // 音声ファイルの非同期読み込み
+            loadAudioFile(AUDIO_FILE_UP).then(buf => upBuffer = buf);
+            loadAudioFile(AUDIO_FILE_DOWN).then(buf => downBuffer = buf);
+            loadAudioFile(AUDIO_FILE_BGM).then(buf => bgmBuffer = buf);
         }
 
         async function loadAudioFile(url) {
@@ -426,15 +451,16 @@
                 const arrayBuffer = await response.arrayBuffer();
                 return await audioCtx.decodeAudioData(arrayBuffer);
             } catch (e) {
-                console.warn(`${url} の読み込みに失敗しました。`, e);
+                console.warn(`${url} の読み込みに失敗しました。ファイルが同階層にあるか確認してください。`, e);
                 return null;
             }
         }
 
+        // === 効果音の再生 ===
         function playSE(isUp) {
             if (!audioCtx) initWebAudio();
             
-            // ブラウザの自動再生ポリシー対策
+            // ブラウザの自動再生制限を解除
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
@@ -442,33 +468,74 @@
             const buffer = isUp ? upBuffer : downBuffer;
             if (!buffer) return;
 
-            // ★ 直前に再生している効果音があれば、強制停止して音の重なりを防ぐ
+            // 直前に鳴っている効果音があれば停止（音が重ならないようにする）
             if (currentSESource) {
                 try {
                     currentSESource.stop();
-                } catch (e) {
-                    // 既に停止済みのエラーは無視
-                }
+                } catch (e) {} // 既に停止済みのエラーは無視
             }
 
-            // 新しい再生ノードを作成
             const source = audioCtx.createBufferSource();
             source.buffer = buffer;
             source.connect(seGainNode);
             
-            // 再生が終了したら参照をクリアする（メモリ解放のため）
             source.onended = () => {
                 if (currentSESource === source) {
                     currentSESource = null;
                 }
             };
 
-            // 0msから即時再生
             source.start(0);
-            
-            // 今回のソースを保持
             currentSESource = source;
         }
+
+        // === BGMの再生 ===
+        function playBGM() {
+            if (!audioCtx) initWebAudio();
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            if (!bgmBuffer) {
+                alert(`BGMの読み込みが完了していないか、ファイル(${AUDIO_FILE_BGM})が見つかりません。`);
+                return;
+            }
+
+            // 既に再生中の場合は何もしない
+            if (isBgmPlaying) return;
+
+            currentBgmSource = audioCtx.createBufferSource();
+            currentBgmSource.buffer = bgmBuffer;
+            currentBgmSource.loop = true; // ループ再生
+            currentBgmSource.connect(bgmGainNode);
+            
+            currentBgmSource.start(0);
+            isBgmPlaying = true;
+        }
+
+        // === BGMの停止 ===
+        function stopBGM() {
+            if (currentBgmSource && isBgmPlaying) {
+                currentBgmSource.stop();
+                currentBgmSource.disconnect();
+                currentBgmSource = null;
+                isBgmPlaying = false;
+            }
+        }
+
+        // === 音量の更新 ===
+        function updateVolume() {
+            const seVol = parseFloat(document.getElementById('vol-se').value);
+            const bgmVol = parseFloat(document.getElementById('vol-bgm').value);
+            
+            // OSの制約を無視して、GainNodeで直接音量を絞るため0で完全に無音になります
+            if (seGainNode) seGainNode.gain.value = seVol;
+            if (bgmGainNode) bgmGainNode.gain.value = bgmVol;
+            
+            document.getElementById('label-vol-se').textContent = Math.round(seVol * 100) + '%';
+            document.getElementById('label-vol-bgm').textContent = Math.round(bgmVol * 100) + '%';
+        }
+
 
         // --- 状態管理・UI操作 ---
         let scores = [0, 0, 0];
@@ -483,9 +550,6 @@
         ];
         const btnUndo = document.getElementById('btn-undo');
         const modal = document.getElementById('menu-modal');
-        const audioBGM = document.getElementById('audio-bgm');
-
-        audioBGM.volume = 0.5;
 
         function updateAmounts() {
             const upVal = parseInt(document.getElementById('input-up').value, 10);
@@ -574,7 +638,6 @@
             clearTimeout(longPressTimer);
         }
 
-        // --- メニュー・BGM処理 ---
         function toggleMenu(show) {
             if (show) {
                 modal.classList.add('active');
@@ -582,28 +645,6 @@
                 modal.classList.remove('active');
                 updateAmounts(); 
             }
-        }
-
-        function playBGM() {
-            audioBGM.play().catch(e => {
-                alert("BGMの再生に失敗しました。ファイル(bgm.mp3)が同じ場所にあるか確認してください。");
-            });
-        }
-
-        function stopBGM() {
-            audioBGM.pause();
-            audioBGM.currentTime = 0;
-        }
-
-        function updateVolume() {
-            const seVol = document.getElementById('vol-se').value;
-            const bgmVol = document.getElementById('vol-bgm').value;
-            
-            if (seGainNode) seGainNode.gain.value = seVol;
-            audioBGM.volume = bgmVol;
-            
-            document.getElementById('label-vol-se').textContent = Math.round(seVol * 100) + '%';
-            document.getElementById('label-vol-bgm').textContent = Math.round(bgmVol * 100) + '%';
         }
 
     </script>
