@@ -7,12 +7,12 @@
     <style>
         :root {
             /* パステル調のチームカラー */
-            --color-soka-bg: #dbeafe; /* 青系背景 */
-            --color-soka-text: #1e3a8a; /* 青系文字 */
-            --color-gajo-bg: #fee2e2; /* 赤系背景 */
-            --color-gajo-text: #7f1d1d; /* 赤系文字 */
-            --color-dai-bg: #fef08a;  /* 黄系背景 */
-            --color-dai-text: #713f12;  /* 黄系文字 */
+            --color-soka-bg: #dbeafe;
+            --color-soka-text: #1e3a8a;
+            --color-gajo-bg: #fee2e2;
+            --color-gajo-text: #7f1d1d;
+            --color-dai-bg: #fef08a;
+            --color-dai-text: #713f12;
         }
 
         * {
@@ -290,24 +290,19 @@
             outline: none;
             border-color: #3b82f6;
         }
-
     </style>
 </head>
 <body>
 
-    <!-- 音声要素 -->
+    <!-- BGM用のオーディオ要素 -->
     <audio id="audio-bgm" src="bgm.mp3" loop></audio>
-    <audio id="audio-up" src="up.mp3"></audio>
-    <audio id="audio-down" src="down.mp3"></audio>
 
     <div class="floating-controls">
-        <!-- Undo ボタン -->
         <button class="icon-btn" id="btn-undo" onclick="undo()" disabled aria-label="元に戻す">
             <svg viewBox="0 0 24 24">
                 <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C20.3 10.09 16.79 8 12.5 8z"/>
             </svg>
         </button>
-        <!-- メニュー ボタン -->
         <button class="icon-btn" onclick="toggleMenu(true)" aria-label="メニュー">
             <svg viewBox="0 0 24 24">
                 <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
@@ -316,7 +311,7 @@
     </div>
 
     <div class="board">
-        <!-- チーム1: 創価班 -->
+        <!-- 創価班 -->
         <div class="team soka">
             <div class="hitbox top" onclick="handleTap(0, true)"></div>
             <div class="hitbox bottom" onclick="handleTap(0, false)"></div>
@@ -329,7 +324,7 @@
             </div>
         </div>
 
-        <!-- チーム2: 牙城会 -->
+        <!-- 牙城会 -->
         <div class="team gajo">
             <div class="hitbox top" onclick="handleTap(1, true)"></div>
             <div class="hitbox bottom" onclick="handleTap(1, false)"></div>
@@ -342,7 +337,7 @@
             </div>
         </div>
 
-        <!-- チーム3: 大学校 -->
+        <!-- 大学校 -->
         <div class="team dai">
             <div class="hitbox top" onclick="handleTap(2, true)"></div>
             <div class="hitbox bottom" onclick="handleTap(2, false)"></div>
@@ -364,7 +359,6 @@
                 <button class="close-btn" onclick="toggleMenu(false)">&times;</button>
             </div>
             
-            <!-- 得点設定 -->
             <div class="setting-group">
                 <span class="setting-label">タップ時の得点変動量</span>
                 <div class="input-row">
@@ -377,13 +371,11 @@
                 </div>
             </div>
 
-            <!-- スコア一括操作 -->
             <div class="setting-group">
                 <span class="setting-label">スコア操作</span>
                 <button class="action-btn warning" style="width: 100%;" onclick="setAllScoresTo100()">全チームを 100点 にする</button>
             </div>
 
-            <!-- BGM操作 -->
             <div class="setting-group">
                 <span class="setting-label">BGM操作</span>
                 <div class="btn-row">
@@ -392,7 +384,6 @@
                 </div>
             </div>
 
-            <!-- 音量設定 -->
             <div class="setting-group">
                 <label class="setting-label" for="vol-se">効果音の音量: <span id="label-vol-se">100%</span></label>
                 <input type="range" id="vol-se" class="range-slider" min="0" max="1" step="0.1" value="1" oninput="updateVolume()">
@@ -406,13 +397,85 @@
     </div>
 
     <script>
-        // 状態管理
+        // --- Web Audio API による効果音の高速再生処理 ---
+        let audioCtx;
+        let upBuffer = null;
+        let downBuffer = null;
+        let seGainNode;
+        let currentSESource = null; // 現在再生中の効果音を保持する変数
+
+        // ページ読み込み時にオーディオの準備を開始
+        window.addEventListener('load', initWebAudio);
+
+        function initWebAudio() {
+            if (audioCtx) return;
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            
+            seGainNode = audioCtx.createGain();
+            seGainNode.connect(audioCtx.destination);
+            seGainNode.gain.value = document.getElementById('vol-se').value;
+
+            loadAudioFile('up.mp3').then(buf => upBuffer = buf);
+            loadAudioFile('down.mp3').then(buf => downBuffer = buf);
+        }
+
+        async function loadAudioFile(url) {
+            try {
+                const response = await fetch(url);
+                const arrayBuffer = await response.arrayBuffer();
+                return await audioCtx.decodeAudioData(arrayBuffer);
+            } catch (e) {
+                console.warn(`${url} の読み込みに失敗しました。`, e);
+                return null;
+            }
+        }
+
+        function playSE(isUp) {
+            if (!audioCtx) initWebAudio();
+            
+            // ブラウザの自動再生ポリシー対策
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            const buffer = isUp ? upBuffer : downBuffer;
+            if (!buffer) return;
+
+            // ★ 直前に再生している効果音があれば、強制停止して音の重なりを防ぐ
+            if (currentSESource) {
+                try {
+                    currentSESource.stop();
+                } catch (e) {
+                    // 既に停止済みのエラーは無視
+                }
+            }
+
+            // 新しい再生ノードを作成
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(seGainNode);
+            
+            // 再生が終了したら参照をクリアする（メモリ解放のため）
+            source.onended = () => {
+                if (currentSESource === source) {
+                    currentSESource = null;
+                }
+            };
+
+            // 0msから即時再生
+            source.start(0);
+            
+            // 今回のソースを保持
+            currentSESource = source;
+        }
+
+        // --- 状態管理・UI操作 ---
         let scores = [0, 0, 0];
         let historyStack = [];
         let upAmount = 10;
         let downAmount = 10;
 
-        // DOM要素
         const scoreEls = [
             document.getElementById('score-0'),
             document.getElementById('score-1'),
@@ -420,60 +483,43 @@
         ];
         const btnUndo = document.getElementById('btn-undo');
         const modal = document.getElementById('menu-modal');
-        
-        // オーディオ要素
-        const audioUp = document.getElementById('audio-up');
-        const audioDown = document.getElementById('audio-down');
         const audioBGM = document.getElementById('audio-bgm');
 
-        // 初期設定
         audioBGM.volume = 0.5;
 
-        // --- 設定値の更新 ---
         function updateAmounts() {
-            // テキストボックスから数値を取得。空欄や不正な値の場合はデフォルトの10にする
             const upVal = parseInt(document.getElementById('input-up').value, 10);
             const downVal = parseInt(document.getElementById('input-down').value, 10);
-            
             upAmount = isNaN(upVal) ? 10 : upVal;
             downAmount = isNaN(downVal) ? 10 : downVal;
         }
 
-        // --- 得点処理 ---
-
-        // 状態を履歴に保存
         function saveHistory() {
             historyStack.push([...scores]);
             btnUndo.disabled = false;
         }
 
-        // タップ時の得点増減処理を中継
         function handleTap(teamIndex, isUp) {
             const amount = isUp ? upAmount : -downAmount;
-            
-            // 変動量が0の場合は何もしない
             if (amount === 0) return;
 
             saveHistory();
             scores[teamIndex] += amount;
             updateDisplay(teamIndex);
             
-            // 効果音再生とアニメーション
-            playSE(isUp ? audioUp : audioDown);
+            playSE(isUp); 
             triggerPopAnimation(teamIndex);
         }
 
-        // チーム得点を0にリセット（長押し用）
         function resetScore(teamIndex) {
             if (scores[teamIndex] === 0) return;
             saveHistory();
             scores[teamIndex] = 0;
             updateDisplay(teamIndex);
             triggerPopAnimation(teamIndex);
-            playSE(audioDown); 
+            playSE(false); // ダウン音を使用
         }
 
-        // 全チームを100点にする
         function setAllScoresTo100() {
             saveHistory();
             for (let i = 0; i < 3; i++) {
@@ -481,16 +527,14 @@
                 updateDisplay(i);
                 triggerPopAnimation(i);
             }
-            playSE(audioUp);
-            toggleMenu(false); // 実行後にメニューを閉じる
+            playSE(true); // アップ音を使用
+            toggleMenu(false);
         }
 
-        // Undo機能
         function undo() {
             if (historyStack.length === 0) return;
             
             const prevScores = historyStack.pop();
-            
             for (let i = 0; i < 3; i++) {
                 if (scores[i] !== prevScores[i]) {
                     scores[i] = prevScores[i];
@@ -504,16 +548,14 @@
             }
         }
 
-        // 画面の更新
         function updateDisplay(teamIndex) {
             scoreEls[teamIndex].textContent = scores[teamIndex];
         }
 
-        // ポップアニメーションのトリガー
         function triggerPopAnimation(teamIndex) {
             const el = scoreEls[teamIndex];
             el.classList.remove('pop-anim');
-            void el.offsetWidth; // リフローを強制
+            void el.offsetWidth;
             el.classList.add('pop-anim');
         }
 
@@ -532,20 +574,12 @@
             clearTimeout(longPressTimer);
         }
 
-        // --- 音声・メニュー処理 ---
-
-        function playSE(audioElement) {
-            if (!audioElement) return;
-            audioElement.currentTime = 0;
-            audioElement.play().catch(e => console.log("SEスキップ:", e.message));
-        }
-
+        // --- メニュー・BGM処理 ---
         function toggleMenu(show) {
             if (show) {
                 modal.classList.add('active');
             } else {
                 modal.classList.remove('active');
-                // メニューを閉じるタイミングで、念のため入力値の反映漏れを防ぐ
                 updateAmounts(); 
             }
         }
@@ -558,15 +592,14 @@
 
         function stopBGM() {
             audioBGM.pause();
-            audioBGM.currentTime = 0; // 停止時は最初に戻す
+            audioBGM.currentTime = 0;
         }
 
         function updateVolume() {
             const seVol = document.getElementById('vol-se').value;
             const bgmVol = document.getElementById('vol-bgm').value;
             
-            audioUp.volume = seVol;
-            audioDown.volume = seVol;
+            if (seGainNode) seGainNode.gain.value = seVol;
             audioBGM.volume = bgmVol;
             
             document.getElementById('label-vol-se').textContent = Math.round(seVol * 100) + '%';
