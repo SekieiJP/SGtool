@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<title>タイマー＆カウンター</title>
+<style>
+    /* CSS Variables & Base Setup */
+    :root {
+        --color-red-normal: #FFAAAA;
+        --color-red-highlight: #CC0000;
+        --color-yellow-normal: #FFFFAA;
+        --color-yellow-highlight: #CC8800;
+        --color-blue-normal: #AAAAFF;
+        --color-blue-highlight: #0000CC;
+        --color-timer-bg: #FFFFEE; /* クリーム色 */
+        --color-timer-flash: #FFCCCC; /* 赤（フラッシュ用） */
+    }
+
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    html, body {
+        width: 100%;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: #222;
+        overflow: hidden;
+        touch-action: none; /* スワイプ等のデフォルト動作を無効化 */
+    }
+
+    /* 横向き専用の警告画面 */
+    #landscape-prompt {
+        display: none;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        text-align: center;
+        padding: 20px;
+        z-index: 9999;
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+
+    @media (orientation: portrait) {
+        #app { display: none !important; }
+        #landscape-prompt { display: flex; }
+    }
+
+    /* メインアプリケーション領域 (iPhone SafariのSafe Area対応) */
+    #app {
+        display: flex;
+        flex-direction: column;
+        width: 100vw;
+        height: 100vh;
+        padding-top: env(safe-area-inset-top);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        background-color: #fff;
+    }
+
+    .view-section {
+        display: flex;
+        width: 100%;
+    }
+
+    /* レイアウト制御 */
+    body.layout-both #timer-view { height: 50%; border-bottom: 2px solid #333; }
+    body.layout-both #counter-view { height: 50%; }
+    
+    body.layout-timer #timer-view { height: 100%; }
+    body.layout-timer #counter-view { display: none; }
+    
+    body.layout-counter #timer-view { display: none; }
+    body.layout-counter #counter-view { height: 100%; }
+
+    /* ====================
+       1. タイマー UI
+       ==================== */
+    #timer-view {
+        background-color: var(--color-timer-bg);
+        display: flex;
+        transition: background-color 0.1s;
+    }
+
+    .timer-main {
+        flex-grow: 1;
+        container-type: size;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .timer-digits {
+        font-size: 80cqh; /* コンテナの高さの80%で自動スケール */
+        font-variant-numeric: tabular-nums;
+        color: #333;
+        line-height: 1;
+    }
+
+    .controls-panel {
+        width: 90px;
+        display: flex;
+        flex-direction: column;
+        border-left: 2px solid #333;
+        background: #eee;
+        flex-shrink: 0;
+    }
+
+    .control-btn {
+        flex-grow: 1;
+        border: none;
+        border-bottom: 1px solid #ccc;
+        background: #f8f8f8;
+        font-size: 16px;
+        font-weight: bold;
+        color: #333;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .control-btn:last-child { border-bottom: none; }
+    .control-btn:active { background: #e0e0e0; }
+    .control-btn:disabled { color: #aaa; background: #f0f0f0; cursor: not-allowed; }
+
+    /* ゼロ到達時の点滅アニメーション */
+    @keyframes flashTimer {
+        0%, 100% { background-color: var(--color-timer-bg); }
+        50% { background-color: var(--color-timer-flash); }
+    }
+    .timer-flash {
+        animation: flashTimer 0.5s ease-in-out 10; /* 0.5秒間隔 x 10回 = 5秒間 */
+    }
+
+    /* ====================
+       2 & 3 & 4. カウンター UI & チームカラー
+       ==================== */
+    #counter-view {
+        display: flex;
+        background-color: #fff;
+    }
+
+    .teams-container {
+        flex-grow: 1;
+        display: flex;
+    }
+
+    .team {
+        flex: 1 1 33.333%;
+        display: flex;
+        flex-direction: column;
+        border-right: 2px solid #333;
+        transition: background-color 0.2s, color 0.2s;
+    }
+    .team:last-child {
+        border-right: none;
+    }
+
+    /* チーム名部分 */
+    .team-name {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        border-bottom: 2px solid rgba(0,0,0,0.1);
+        cursor: pointer;
+    }
+
+    /* タップ加算エリア */
+    .score-area {
+        flex-grow: 1;
+        container-type: size;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+
+    .score-digits {
+        font-size: 65cqh; /* 3チームになったので少し調整 */
+        line-height: 1;
+        pointer-events: none; /* クリック判定を親要素に任せる */
+    }
+
+    /* チームカラー（赤） */
+    #team-red { background-color: var(--color-red-normal); color: #333; }
+    #team-red.highlight { background-color: var(--color-red-highlight); color: #fff; font-weight: bold; }
+
+    /* チームカラー（黄） */
+    #team-yellow { background-color: var(--color-yellow-normal); color: #333; }
+    #team-yellow.highlight { background-color: var(--color-yellow-highlight); color: #fff; font-weight: bold; }
+
+    /* チームカラー（青） */
+    #team-blue { background-color: var(--color-blue-normal); color: #333; }
+    #team-blue.highlight { background-color: var(--color-blue-highlight); color: #fff; font-weight: bold; }
+
+    /* バウンスアニメーション */
+    @keyframes bounce {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.15); }
+    }
+    .bounce {
+        animation: bounce 0.3s ease;
+    }
+
+    /* ====================
+       5. モーダル UI全般
+       ==================== */
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: #fff;
+        padding: 24px;
+        border-radius: 12px;
+        width: 340px;
+        max-width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .modal-title {
+        font-size: 20px;
+        font-weight: bold;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+
+    /* 設定モーダル特有 */
+    .form-group {
+        margin-bottom: 16px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-group label {
+        margin-bottom: 6px;
+        font-weight: bold;
+        font-size: 14px;
+        color: #555;
+    }
+
+    .form-group input, .form-group select {
+        padding: 10px;
+        font-size: 16px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+    }
+
+    .btn-primary {
+        margin-top: 10px;
+        padding: 12px;
+        width: 100%;
+        background: #333;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    .btn-primary:active { background: #555; }
+
+    /* 確認モーダル特有 */
+    .confirm-actions {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 24px;
+    }
+    .confirm-actions button {
+        flex: 1;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: bold;
+        border: none;
+        cursor: pointer;
+    }
+    #btn-confirm-cancel { background: #eee; color: #333; }
+    #btn-confirm-cancel:active { background: #ddd; }
+    #btn-confirm-ok { background: var(--color-red-highlight); color: #fff; }
+    #btn-confirm-ok:active { opacity: 0.8; }
+
+</style>
+</head>
+<body class="layout-both">
+
+    <!-- 縦向き時アラート -->
+    <div id="landscape-prompt">
+        <div>端末を横向きに<br>してください</div>
+    </div>
+
+    <!-- メインアプリ -->
+    <div id="app">
+        <!-- 1. タイマー領域 -->
+        <div id="timer-view">
+            <div class="timer-main">
+                <div id="timer-digits" class="timer-digits">60</div>
+            </div>
+            <div class="controls-panel">
+                <button id="btn-timer-toggle" class="control-btn">開始</button>
+                <button id="btn-timer-reset" class="control-btn">リセット</button>
+            </div>
+        </div>
+
+        <!-- 2. カウンター領域 -->
+        <div id="counter-view">
+            <div class="teams-container">
+                <!-- 赤チーム -->
+                <div id="team-red" class="team">
+                    <div id="name-red" class="team-name">Aチーム</div>
+                    <div id="area-red" class="score-area">
+                        <span id="score-red" class="score-digits">0</span>
+                    </div>
+                </div>
+                <!-- 黄チーム -->
+                <div id="team-yellow" class="team">
+                    <div id="name-yellow" class="team-name">Bチーム</div>
+                    <div id="area-yellow" class="score-area">
+                        <span id="score-yellow" class="score-digits">0</span>
+                    </div>
+                </div>
+                <!-- 青チーム -->
+                <div id="team-blue" class="team">
+                    <div id="name-blue" class="team-name">Cチーム</div>
+                    <div id="area-blue" class="score-area">
+                        <span id="score-blue" class="score-digits">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="controls-panel">
+                <button id="btn-all-plus" class="control-btn" style="font-size:14px;">+1<br>全チーム</button>
+                <button id="btn-undo" class="control-btn" style="font-size:24px;">↩︎</button>
+                <button id="btn-settings" class="control-btn" style="font-size:24px;">⚙</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 設定モーダル -->
+    <div id="settings-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">設定</div>
+            
+            <div class="form-group">
+                <label for="input-timer-sec">タイマー初期値 (秒)</label>
+                <input type="number" id="input-timer-sec" min="1" step="1" value="60">
+            </div>
+            
+            <div class="form-group">
+                <label for="input-red-name">赤チーム名</label>
+                <input type="text" id="input-red-name" value="Aチーム">
+            </div>
+
+            <div class="form-group">
+                <label for="input-yellow-name">黄チーム名</label>
+                <input type="text" id="input-yellow-name" value="Bチーム">
+            </div>
+            
+            <div class="form-group">
+                <label for="input-blue-name">青チーム名</label>
+                <input type="text" id="input-blue-name" value="Cチーム">
+            </div>
+            
+            <div class="form-group">
+                <label for="select-layout">レイアウト</label>
+                <select id="select-layout">
+                    <option value="both">両方表示</option>
+                    <option value="timer">タイマーのみ</option>
+                    <option value="counter">カウンターのみ</option>
+                </select>
+            </div>
+            
+            <button id="btn-settings-close" class="btn-primary">閉じる</button>
+        </div>
+    </div>
+
+    <!-- 確認モーダル (タイマーリセット用) -->
+    <div id="confirm-overlay" class="modal-overlay" style="z-index: 2000;">
+        <div class="modal-content" style="width: 300px;">
+            <div class="modal-title" style="margin-bottom: 10px;">確認</div>
+            <p style="text-align: center; color: #333; line-height: 1.5;">タイマーは動作中です。<br>リセットして初期値に戻しますか？</p>
+            <div class="confirm-actions">
+                <button id="btn-confirm-cancel">キャンセル</button>
+                <button id="btn-confirm-ok">リセット</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // === 状態管理 ===
+    const state = {
+        timer: {
+            defaultSec: 60,
+            currentSec: 60,
+            isRunning: false,
+            intervalId: null,
+            flashTimeoutId: null
+        },
+        score: {
+            red: 0,
+            yellow: 0,
+            blue: 0,
+            history: [] // Undo用の履歴保持
+        },
+        teams: {
+            redName: 'Aチーム',
+            yellowName: 'Bチーム',
+            blueName: 'Cチーム',
+            redHighlighted: false,
+            yellowHighlighted: false,
+            blueHighlighted: false
+        },
+        layout: 'both' // 'both', 'timer', 'counter'
+    };
+
+    // === DOM要素の取得 ===
+    const timerDigits = document.getElementById('timer-digits');
+    const timerView = document.getElementById('timer-view');
+    const btnTimerToggle = document.getElementById('btn-timer-toggle');
+    const btnTimerReset = document.getElementById('btn-timer-reset');
+
+    const scoreRed = document.getElementById('score-red');
+    const scoreYellow = document.getElementById('score-yellow');
+    const scoreBlue = document.getElementById('score-blue');
+    
+    const areaRed = document.getElementById('area-red');
+    const areaYellow = document.getElementById('area-yellow');
+    const areaBlue = document.getElementById('area-blue');
+    
+    const nameRed = document.getElementById('name-red');
+    const nameYellow = document.getElementById('name-yellow');
+    const nameBlue = document.getElementById('name-blue');
+    
+    const teamRedEl = document.getElementById('team-red');
+    const teamYellowEl = document.getElementById('team-yellow');
+    const teamBlueEl = document.getElementById('team-blue');
+
+    const btnAllPlus = document.getElementById('btn-all-plus');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnSettings = document.getElementById('btn-settings');
+
+    const settingsOverlay = document.getElementById('settings-overlay');
+    const btnSettingsClose = document.getElementById('btn-settings-close');
+    const confirmOverlay = document.getElementById('confirm-overlay');
+    const btnConfirmCancel = document.getElementById('btn-confirm-cancel');
+    const btnConfirmOk = document.getElementById('btn-confirm-ok');
+
+    const inputTimerSec = document.getElementById('input-timer-sec');
+    const inputRedName = document.getElementById('input-red-name');
+    const inputYellowName = document.getElementById('input-yellow-name');
+    const inputBlueName = document.getElementById('input-blue-name');
+    const selectLayout = document.getElementById('select-layout');
+
+    // ====================
+    // 1. タイマーロジック
+    // ====================
+    function updateTimerDisplay() {
+        timerDigits.textContent = state.timer.currentSec;
+    }
+
+    function triggerTimerFlash() {
+        timerView.classList.remove('timer-flash');
+        clearTimeout(state.timer.flashTimeoutId);
+        
+        void timerView.offsetWidth; // reflow
+        
+        timerView.classList.add('timer-flash');
+        state.timer.flashTimeoutId = setTimeout(() => {
+            timerView.classList.remove('timer-flash');
+        }, 5000);
+    }
+
+    function toggleTimer() {
+        if (state.timer.isRunning) {
+            // 一時停止
+            clearInterval(state.timer.intervalId);
+            state.timer.isRunning = false;
+            btnTimerToggle.textContent = '開始';
+        } else {
+            // 開始
+            if (state.timer.currentSec <= 0) return;
+            
+            state.timer.isRunning = true;
+            btnTimerToggle.textContent = '一時停止';
+            
+            timerView.classList.remove('timer-flash');
+            clearTimeout(state.timer.flashTimeoutId);
+
+            state.timer.intervalId = setInterval(() => {
+                state.timer.currentSec--;
+                updateTimerDisplay();
+
+                if (state.timer.currentSec <= 0) {
+                    clearInterval(state.timer.intervalId);
+                    state.timer.isRunning = false;
+                    btnTimerToggle.textContent = '開始';
+                    triggerTimerFlash();
+                }
+            }, 1000);
+        }
+    }
+
+    function executeTimerReset() {
+        clearInterval(state.timer.intervalId);
+        state.timer.isRunning = false;
+        btnTimerToggle.textContent = '開始';
+        state.timer.currentSec = state.timer.defaultSec;
+        timerView.classList.remove('timer-flash');
+        clearTimeout(state.timer.flashTimeoutId);
+        updateTimerDisplay();
+    }
+
+    function onTimerResetClick() {
+        if (state.timer.isRunning) {
+            // 動作中はカスタム確認モーダルを表示
+            confirmOverlay.style.display = 'flex';
+        } else {
+            // 停止中は即座にリセット
+            executeTimerReset();
+        }
+    }
+
+    // 確認モーダルのイベント
+    btnConfirmCancel.addEventListener('click', () => {
+        confirmOverlay.style.display = 'none';
+    });
+    btnConfirmOk.addEventListener('click', () => {
+        confirmOverlay.style.display = 'none';
+        executeTimerReset();
+    });
+
+    btnTimerToggle.addEventListener('click', toggleTimer);
+    btnTimerReset.addEventListener('click', onTimerResetClick);
+
+    // ====================
+    // 2. カウンターロジック
+    // ====================
+    function updateCounterDisplay() {
+        scoreRed.textContent = state.score.red;
+        scoreYellow.textContent = state.score.yellow;
+        scoreBlue.textContent = state.score.blue;
+        
+        btnUndo.disabled = state.score.history.length === 0;
+    }
+
+    function saveHistory() {
+        state.score.history.push({
+            red: state.score.red,
+            yellow: state.score.yellow,
+            blue: state.score.blue
+        });
+    }
+
+    function triggerBounce(element) {
+        element.classList.remove('bounce');
+        void element.offsetWidth; // reflow
+        element.classList.add('bounce');
+    }
+
+    // 各エリアタップ
+    areaRed.addEventListener('pointerdown', () => {
+        saveHistory();
+        state.score.red++;
+        updateCounterDisplay();
+        triggerBounce(scoreRed);
+    });
+
+    areaYellow.addEventListener('pointerdown', () => {
+        saveHistory();
+        state.score.yellow++;
+        updateCounterDisplay();
+        triggerBounce(scoreYellow);
+    });
+
+    areaBlue.addEventListener('pointerdown', () => {
+        saveHistory();
+        state.score.blue++;
+        updateCounterDisplay();
+        triggerBounce(scoreBlue);
+    });
+
+    // 右端ボタン：全チーム+1
+    btnAllPlus.addEventListener('click', () => {
+        saveHistory();
+        state.score.red++;
+        state.score.yellow++;
+        state.score.blue++;
+        updateCounterDisplay();
+        triggerBounce(scoreRed);
+        triggerBounce(scoreYellow);
+        triggerBounce(scoreBlue);
+    });
+
+    // 右端ボタン：Undo
+    btnUndo.addEventListener('click', () => {
+        if (state.score.history.length > 0) {
+            const lastState = state.score.history.pop();
+            state.score.red = lastState.red;
+            state.score.yellow = lastState.yellow;
+            state.score.blue = lastState.blue;
+            updateCounterDisplay();
+        }
+    });
+
+
+    // ====================
+    // 4. チーム強調（長押し）ロジック
+    // ====================
+    function setupLongPress(element, teamKey, teamDomEl) {
+        let pressTimer;
+        
+        const startPress = (e) => {
+            e.preventDefault(); 
+            pressTimer = setTimeout(() => {
+                state.teams[teamKey + 'Highlighted'] = !state.teams[teamKey + 'Highlighted'];
+                teamDomEl.classList.toggle('highlight', state.teams[teamKey + 'Highlighted']);
+            }, 500);
+        };
+        
+        const cancelPress = () => clearTimeout(pressTimer);
+
+        element.addEventListener('pointerdown', startPress);
+        element.addEventListener('pointerup', cancelPress);
+        element.addEventListener('pointerleave', cancelPress);
+        element.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
+    setupLongPress(nameRed, 'red', teamRedEl);
+    setupLongPress(nameYellow, 'yellow', teamYellowEl);
+    setupLongPress(nameBlue, 'blue', teamBlueEl);
+
+
+    // ====================
+    // 5 & 6. 設定・レイアウト ロジック
+    // ====================
+    function openSettingsModal() {
+        inputTimerSec.value = state.timer.defaultSec;
+        inputRedName.value = state.teams.redName;
+        inputYellowName.value = state.teams.yellowName;
+        inputBlueName.value = state.teams.blueName;
+        selectLayout.value = state.layout;
+        
+        settingsOverlay.style.display = 'flex';
+    }
+
+    function applySettingsAndClose() {
+        const newSec = parseInt(inputTimerSec.value, 10);
+        if (!isNaN(newSec) && newSec > 0) {
+            state.timer.defaultSec = newSec;
+        }
+        
+        state.teams.redName = inputRedName.value || 'Aチーム';
+        state.teams.yellowName = inputYellowName.value || 'Bチーム';
+        state.teams.blueName = inputBlueName.value || 'Cチーム';
+        
+        nameRed.textContent = state.teams.redName;
+        nameYellow.textContent = state.teams.yellowName;
+        nameBlue.textContent = state.teams.blueName;
+
+        state.layout = selectLayout.value;
+        document.body.className = `layout-${state.layout}`;
+
+        settingsOverlay.style.display = 'none';
+    }
+
+    btnSettings.addEventListener('click', openSettingsModal);
+    btnSettingsClose.addEventListener('click', applySettingsAndClose);
+    
+    // 背景（オーバーレイ）タップで閉じる
+    settingsOverlay.addEventListener('click', (e) => {
+        if (e.target === settingsOverlay) {
+            applySettingsAndClose();
+        }
+    });
+
+    // === 初期化実行 ===
+    updateTimerDisplay();
+    updateCounterDisplay();
+    document.body.className = `layout-${state.layout}`;
+    btnUndo.disabled = true;
+});
+</script>
+</body>
+</html>
