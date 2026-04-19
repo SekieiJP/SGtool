@@ -113,10 +113,6 @@
                 
                 <!-- 操作ボタン群 (右端固定) -->
                 <div class="w-16 sm:w-20 border-l border-gray-300 flex flex-col bg-gray-100">
-                    <button id="add-all-btn" class="flex-1 border-b border-gray-300 flex flex-col items-center justify-center active:bg-gray-300 transition-colors text-gray-500 hover:text-gray-900">
-                        <i class="ph ph-users text-lg sm:text-xl mb-1"></i>
-                        <span class="text-[10px] font-bold">+1</span>
-                    </button>
                     <button id="undo-btn" class="flex-1 border-b border-gray-300 flex flex-col items-center justify-center active:bg-gray-300 transition-colors disabled:opacity-30 text-gray-500 hover:text-gray-900" disabled>
                         <i class="ph ph-arrow-u-up-left text-xl sm:text-2xl"></i>
                         <span class="text-[9px] mt-1">Undo</span>
@@ -132,7 +128,7 @@
              右側エリア (20%) : タイマー
         =============================================== -->
         <div class="w-[20%] h-full flex flex-col bg-white border-l border-gray-200 shadow-[-2px_0_10px_rgba(0,0,0,0.05)] z-10">
-            <div class="flex-1 flex flex-col items-center justify-center relative p-2">
+            <div id="timer-area-btn" class="flex-1 flex flex-col items-center justify-center relative p-2 cursor-pointer active:bg-gray-50 transition-colors">
                 <span class="absolute top-2 sm:top-4 text-[10px] sm:text-xs text-gray-400 font-bold tracking-widest uppercase">Timer</span>
                 <!-- 動的文字サイズのタイマー表示 -->
                 <div id="timer-display" class="font-mono font-black text-gray-800 text-center leading-none" style="font-size: min(8vw, 12vh);">120</div>
@@ -182,42 +178,6 @@
     </div>
 
     <!-- ==============================================
-         設定モーダル
-    =============================================== -->
-    <div id="settings-modal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4">
-        <div class="bg-gray-800 border border-gray-600 p-5 sm:p-6 rounded-2xl w-full max-w-sm text-white shadow-2xl">
-            <h2 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-center border-b border-gray-700 pb-2">設定</h2>
-            
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs sm:text-sm text-gray-400 mb-1">タイマー開始秒数</label>
-                    <input type="number" id="setting-timer" class="w-full bg-gray-900 border border-gray-600 p-2 sm:p-3 rounded-lg text-white text-base sm:text-lg font-mono outline-none focus:border-blue-500" value="120">
-                </div>
-                
-                <div class="grid grid-cols-3 gap-2 sm:gap-3">
-                    <div>
-                        <label class="block text-[10px] sm:text-xs text-red-400 mb-1 text-center">Aチーム名</label>
-                        <input type="text" id="setting-team1" class="w-full bg-gray-900 border border-red-900 p-2 rounded-lg text-white text-center text-xs sm:text-sm outline-none focus:border-red-500" value="Aチーム">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] sm:text-xs text-yellow-400 mb-1 text-center">Bチーム名</label>
-                        <input type="text" id="setting-team2" class="w-full bg-gray-900 border border-yellow-900 p-2 rounded-lg text-white text-center text-xs sm:text-sm outline-none focus:border-yellow-500" value="Bチーム">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] sm:text-xs text-blue-400 mb-1 text-center">Cチーム名</label>
-                        <input type="text" id="setting-team3" class="w-full bg-gray-900 border border-blue-900 p-2 rounded-lg text-white text-center text-xs sm:text-sm outline-none focus:border-blue-500" value="Cチーム">
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex justify-end gap-2 sm:gap-3 mt-6 sm:mt-8">
-                <button id="settings-cancel" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold transition-colors text-sm sm:text-base">キャンセル</button>
-                <button id="settings-save" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-colors text-sm sm:text-base">保存</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==============================================
          JavaScript ロジック
     =============================================== -->
     <script>
@@ -242,6 +202,7 @@
         /* --- 2. 状態管理 --- */
         // お題
         let currentOdaiIndex = 0;
+        let isOdaiHidden = false; // お題非表示フラグ
         
         // タイマー
         let timerSettings = 120;
@@ -260,15 +221,22 @@
             const nextContainer = document.getElementById('next-odai-container');
             const nextText = document.getElementById('next-odai-text');
 
-            currentText.textContent = odaiList[currentOdaiIndex];
-            
-            // 次のお題（ループ処理）
-            let nextIndex = (currentOdaiIndex + 1) % odaiList.length;
-            nextText.textContent = odaiList[nextIndex];
+            if (isOdaiHidden) {
+                currentText.textContent = "みんなで！ イラストかるた";
+                nextText.textContent = "";
+            } else {
+                currentText.textContent = odaiList[currentOdaiIndex];
+                
+                // 次のお題（ループ処理）
+                let nextIndex = (currentOdaiIndex + 1) % odaiList.length;
+                nextText.textContent = odaiList[nextIndex];
+            }
 
             // 枠に合わせて文字サイズを最大化
             fitText(currentContainer, currentText);
-            fitText(nextContainer, nextText);
+            if (!isOdaiHidden) {
+                fitText(nextContainer, nextText);
+            }
         }
 
         // 二分探索でコンテナに収まる最大フォントサイズを計算
@@ -332,17 +300,6 @@
             scores[teamIndex] += amount;
             updateScoreUI(teamIndex);
             playBounceAnim(teamIndex);
-        }
-
-        function addAllScores() {
-            lastScores = [...scores];
-            enableUndo();
-            
-            for(let i=0; i<3; i++) {
-                scores[i]++;
-                updateScoreUI(i);
-                playBounceAnim(i);
-            }
         }
 
         function undoScore() {
@@ -458,9 +415,14 @@
             }
 
             // 全体操作ボタン
-            document.getElementById('add-all-btn').addEventListener('click', addAllScores);
             document.getElementById('undo-btn').addEventListener('click', undoScore);
             document.getElementById('settings-btn').addEventListener('click', openSettings);
+
+            // タイマーエリアタップでお題表示トグル
+            document.getElementById('timer-area-btn').addEventListener('click', () => {
+                isOdaiHidden = !isOdaiHidden;
+                updateOdai();
+            });
 
             // タイマーボタン
             document.getElementById('timer-toggle-btn').addEventListener('click', toggleTimer);
